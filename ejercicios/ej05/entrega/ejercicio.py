@@ -6,17 +6,19 @@ from matplotlib.image import NonUniformImage
 
 fs = 10#16000000 # Sampling rate.
 fsym = fs/16 # Symbol rate.
+channel_fs_k = 1/10
+fir_fs_k = 1/10
 
-prbs_samples = 1000
-prbs_gain = 10 #Symbol Energy PAM4 = 5*A**2 (Energy*2 if QAM16 (PAM4 in both axis))
-samplingRatio = 4 # Ratio for upsampling and downsampling
-FIR_samples = 20
+prbs_samples = 5000
+prbs_gain = 1 #Symbol Energy PAM4 = 5*A**2
+samplingRatio = 10 # Ratio for upsampling and downsampling
+FIR_samples = 80
 FIR_waveform = "rrc" #rrc, sinc, sine, rect, tria, imp
 FIR_mirror = True
-channel_samples = 20
+channel_samples = 100
 channel_waveform = "imp" 
 channel_mirror = True
-channel_noise_power = 0.0001 #(AWGN)
+channel_noise_power = 0.5 #(AWGN)
 
 def normalize_energy(signal, reference):
     energy_signal = np.mean(np.abs(signal)**2)
@@ -32,94 +34,39 @@ def block_LUT_PAM4(sigIn):
     sigOut = [LUT[x] for x in sigIn]
     return sigOut
 
-def block_prbs_pam4(samples, plot=False):
-    prbs_r = np.round(np.random.uniform(low=-0.5, high=3.5, size=(prbs_samples,))).astype(int)
-    prbs_i = np.round(np.random.uniform(low=-0.0, high=0.1, size=(prbs_samples,))).astype(int)
+def block_prbs_pam4(samples):
+    prbs_r = np.floor(np.random.uniform(low=0, high=4, size=(prbs_samples,))).astype(int)
+    prbs_i = np.floor(np.random.uniform(low=0, high=0, size=(prbs_samples,))).astype(int)
     prbs_r = block_LUT_PAM4(prbs_r)
     #prbs_i = block_LUT_PAM4(prbs_i)
     prbs = np.array([prbs_gain*complex(x, jy) for x, jy in zip(prbs_r, prbs_i)])
-    if plot:
-        plt.figure()
-        plt.ion()
-        plt.show()
-        plt.subplot(2, 1, 1)
-        plt.stem(np.arange(0, len(prbs), 1), prbs.imag, 'r', markerfmt='ro', label="b_imag[n] (PRBS PAM4)")
-        plt.legend()
-        plt.grid()
-        plt.subplot(2, 1, 2)
-        plt.stem(np.arange(0, len(prbs), 1), prbs.real, 'b', markerfmt='bo', label="b_real[n] (PRBS PAM4)")
-        plt.legend()
-        plt.grid()
-        plt.draw()
-        plt.pause(0.001)
     return prbs
 
-def block_upSampling(sigIn, ratio, plot=False):
+def block_upSampling(sigIn, ratio):
     sigOut = []
     for i in range(len(sigIn)):
         sigOut.append(sigIn[i])
         sigOut.extend([0]*(ratio - 1))
     sigOut = np.array(sigOut)
-    if plot:
-        plt.figure()
-        plt.ion()
-        plt.show()
-        plt.subplot(2, 1, 1)
-        plt.stem(np.arange(0, len(sigOut), 1), sigOut.imag, 'r', markerfmt='ro', label="d_imag[n]")
-        plt.legend()
-        plt.grid()
-        plt.subplot(2, 1, 2)
-        plt.stem(np.arange(0, len(sigOut), 1), sigOut.real, 'b', markerfmt='bo', label="d_real[n]")
-        plt.legend()
-        plt.grid()
-        plt.draw()
-        plt.pause(0.001)
     return sigOut
 
-def block_downSampling(sigIn, ratio, plot=False):
+def block_downSampling(sigIn, ratio):
     sigOut = []
     for i in range(0, len(sigIn), ratio):
         sigOut.append(sigIn[i])
     sigOut = np.array(sigOut)
-    if plot:
-        plt.figure()
-        plt.ion()
-        plt.show()
-        plt.subplot(2, 1, 1)
-        plt.stem(np.arange(0, len(sigOut), 1), sigOut.imag, 'r', markerfmt='ro', label="b~_imag[n]")
-        plt.legend()
-        plt.grid()
-        plt.subplot(2, 1, 2)
-        plt.stem(np.arange(0, len(sigOut), 1), sigOut.real, 'b', markerfmt='bo', label="b~_real[n]")
-        plt.legend()
-        plt.grid()
-        plt.draw()
-        plt.pause(0.001)
     return sigOut
-
-def response_filter_LPF():
-    fc = fs/1
-    Omega_c = (2*np.pi*fc)/(fs*samplingRatio)
-    firOrder = 60
-    h = []
-    for n in range(0, firOrder + 1):
-        if (n - firOrder/2) == 0: #Limit when n tends to 0 (sinc div by 0)
-            h_sample = Omega_c / np.pi
-        else:
-            h_sample = np.sin(Omega_c*(n - firOrder/2)) / (np.pi*(n - firOrder/2))
-        h.append(h_sample)
-    return h
 
 def rotate_complex_array(arr, angle_radians):
     rotation_factor = np.exp(1j * angle_radians)
     return arr * rotation_factor
 
-def response_filter(waveform="sinc", mirror=False, plot=False):
+def response_filter(waveform="sinc", mirror=False):
     amp = 1
-    freq = 4 #Hz
+    freq = fs*fir_fs_k #Hz
     phase = 0 #np.pi/2 #radians
     duty = 0.5 #*100%
-    rollOff = 1.0
+    rollOff = 0.5
     rotation = 0#np.pi/8 #radians
     if waveform == "sinc":
         response = Signal.Sinc(amp, freq, phase, fs, FIR_samples)
@@ -136,119 +83,46 @@ def response_filter(waveform="sinc", mirror=False, plot=False):
     h = rotate_complex_array(np.array(response.amplitudes()), rotation)
     if mirror:
         h = np.concatenate((h[::-1], h[1:]))
-    if plot:
-        plt.figure()
-        plt.ion()
-        plt.show()
-        plt.subplot(2, 1, 1)
-        plt.stem(np.arange(0, len(h), 1), h.imag, 'r', markerfmt='ro', label="p_imag[n]")
-        plt.legend()
-        plt.grid()
-        plt.subplot(2, 1, 2)
-        plt.stem(np.arange(0, len(h), 1), h.real, 'b', markerfmt='bo', label="p_real[n]")
-        plt.legend()
-        plt.grid()
-        plt.draw()
-        plt.pause(0.001)
     return h
 
-def block_FIR(sigIn, plot=False):
-    sigOut = np.convolve(sigIn, response_filter(FIR_waveform, FIR_mirror, plot))
-    #sigOut = normalize_energy(sigOut, sigIn)
-    if plot:
-        plt.figure()
-        plt.ion()
-        plt.show()
-        plt.subplot(2, 1, 1)
-        plt.stem(np.arange(0, len(sigOut), 1), sigOut.imag, 'r', markerfmt='ro', label="xy_imag[n]")
-        plt.legend()
-        plt.grid()
-        plt.subplot(2, 1, 2)
-        plt.stem(np.arange(0, len(sigOut), 1), sigOut.real, 'b', markerfmt='bo', label="xy_real[n]")
-        plt.legend()
-        plt.grid()
-        plt.draw()
-        plt.pause(0.001)
+def block_FIR(sigIn):
+    sigOut = np.convolve(sigIn, response_filter(FIR_waveform, FIR_mirror))
     return sigOut
 
-def response_channel(waveform="imp", mirror=False, plot=False):
+def response_channel(waveform="imp", mirror=False):
     amp = 1
-    freq = 2 #Hz
+    freq = fs*channel_fs_k #Hz
     phase = 0#np.pi/2 #radians
-    duty = 0.5 #*100%
+    duty = 1 #*100%
     rollOff = 1.0
-    rotation = 0#np.pi/4 #radians
+    rotation = (00*np.pi/180) #radians
     if waveform == "sinc":
-        response = Signal.Sinc(amp, freq, phase, fs, FIR_samples)
+        response = Signal.Sinc(amp, freq, phase, fs, channel_samples)
     if waveform == "rrc":
-        response = Signal.RootRaisedCosine(amp, freq, phase, rollOff, fs, FIR_samples)
+        response = Signal.RootRaisedCosine(amp, freq, phase, rollOff, fs, channel_samples)
     if waveform == "sine":
-        response = Signal.Sine(amp, freq, phase, fs, FIR_samples)
+        response = Signal.Sine(amp, freq, phase, fs, channel_samples)
     if waveform == "rect":
-        response = Signal.Rectangular(amp, freq, duty, phase, fs, FIR_samples)
+        response = Signal.Rectangular(amp, freq, duty, phase, fs, channel_samples)
     if waveform == "tria":
-        response = Signal.Triangular(amp, freq, duty, phase, fs, FIR_samples)
+        response = Signal.Triangular(amp, freq, duty, phase, fs, channel_samples)
     if waveform == "imp":
-        response = Signal.Impulse(amp, fs, FIR_samples)
+        response = Signal.Impulse(amp, fs, channel_samples)
     h = rotate_complex_array(np.array(response.amplitudes()), rotation)
     if mirror:
         h = np.concatenate((h[::-1], h[1:]))
-    if plot:
-        plt.figure()
-        plt.ion()
-        plt.show()
-        plt.subplot(2, 1, 1)
-        plt.stem(np.arange(0, len(h), 1), h.imag, 'r', markerfmt='ro', label="h_imag[n]")
-        plt.legend()
-        plt.grid()
-        plt.subplot(2, 1, 2)
-        plt.stem(np.arange(0, len(h), 1), h.real, 'b', markerfmt='bo', label="h_real[n]")
-        plt.legend()
-        plt.grid()
-        plt.draw()
-        plt.pause(0.001)
     return h
 
-def block_noise(noisePower, samples, plot=False):
+def block_noise(noisePower, samples):
     std = np.sqrt(noisePower/2)
     n_r = np.random.normal(loc=0, scale=std, size=samples)
     n_i = np.random.normal(loc=0, scale=std, size=samples)
     n = np.array([complex(x, jy) for x, jy in zip(n_r, n_i)])
-    if plot:
-        plt.figure()
-        plt.ion()
-        plt.show()
-        plt.subplot(2, 1, 1)
-        plt.stem(np.arange(0, len(n), 1), n.imag, 'r', markerfmt='ro', label="n_imag[n]")
-        plt.legend()
-        plt.grid()
-        plt.subplot(2, 1, 2)
-        plt.stem(np.arange(0, len(n), 1), n.real, 'b', markerfmt='bo', label="n_real[n]")
-        plt.legend()
-        plt.grid()
-        plt.draw()
-        plt.pause(0.001)
     return n
 
-def block_channel(sigIn, noisePower, plot=False):
-    sigOut = np.convolve(sigIn, response_channel(channel_waveform, channel_mirror, plot))
-    sigOut += block_noise(noisePower, len(sigOut), plot)
-    #sigOut = normalize_energy(sigOut, sigIn)
-
-    if plot:
-        plt.figure()
-        plt.ion()
-        plt.show()
-        plt.subplot(2, 1, 1)
-        plt.stem(np.arange(0, len(sigOut), 1), sigOut.imag, 'r', markerfmt='ro', label="c_imag[n]")
-        plt.legend()
-        plt.grid()
-        plt.subplot(2, 1, 2)
-        plt.stem(np.arange(0, len(sigOut), 1), sigOut.real, 'b', markerfmt='bo', label="c_real[n]")
-        plt.legend()
-        plt.grid()
-        plt.draw()
-        plt.pause(0.001)
+def block_channel(sigIn, noisePower):
+    sigOut = np.convolve(sigIn, response_channel(channel_waveform, channel_mirror))
+    sigOut += block_noise(noisePower, len(sigOut))
     return sigOut
 
 def decode_symbol_PAM4(sigIn, sigGain, plot=False):
@@ -280,35 +154,108 @@ def get_mse(actual, expected):
     mse = np.mean(squared_diff)
     return mse
 
-def plot_BER_MSE():
+def plot_eye_diagram(sigIn, samplesPerPeriod):
+    plt.figure()
+    for idx in np.arange(0, len(sigIn) - (samplesPerPeriod*2), (samplesPerPeriod*2)):
+        eyeDiagram = []
+        xAxis = []
+        for sppIdx in np.arange(0, (samplesPerPeriod*2) + 1, 1):
+            if (idx + sppIdx) < len(sigIn):    
+                xAxis.append(sppIdx)
+                eyeDiagram.append(sigIn[idx + sppIdx])
+        plt.plot(xAxis, eyeDiagram)
+        # plt.draw()
+        # plt.pause(0.001)
+        # input("Press [enter] to continue.")
+    plt.title("Eye Diagram")
+    plt.grid()
+    plt.show()
+
+def plotSignal(signal, name):
+    plt.figure()
+    plt.ion()
+    plt.show()
+    plt.subplot(2, 1, 1)
+    plt.stem(np.arange(0, len(signal), 1), signal.imag, 'r', markerfmt='ro', label=name+"_imag[n]")
+    plt.legend()
+    plt.grid()
+    plt.subplot(2, 1, 2)
+    plt.stem(np.arange(0, len(signal), 1), signal.real, 'b', markerfmt='bo', label=name+"_real[n]")
+    plt.legend()
+    plt.grid()
+    plt.draw()
+    plt.pause(0.001)
+
+def system(sigIn, noisePower, plotSignals=False, plotSymbols=False, plotEye=False):
+    samplesToCut_upper = (FIR_samples - 1)*2 + (channel_samples - 1)
+    samplesToCut_lower = 0
+    if FIR_mirror:
+        samplesToCut_lower += (FIR_samples - 1)*2
+    if channel_mirror:
+        samplesToCut_lower += (channel_samples - 1)
+    sigIn_power = np.mean(np.abs(sigIn)**2)
+    print("Input signal power is: ", sigIn_power)
+    signal_p = response_filter(FIR_waveform, FIR_mirror)
+    signal_h = response_channel(channel_waveform, channel_mirror)
+    signal_n = block_noise(noisePower, channel_samples)
+    signal_n_power = np.mean(np.abs(signal_n)**2)
+    print("Power of n is: ", signal_n_power)
+
+    signal_d = block_upSampling(sigIn, samplingRatio)
+    signal_x = block_FIR(signal_d)
+    signal_c = block_channel(signal_x, noisePower)
+    signal_y = block_FIR(signal_c)
+    signal_y_trimmed = signal_y[samplesToCut_lower : len(signal_y) - samplesToCut_upper]
+    signal_b_ = block_downSampling(signal_y_trimmed, samplingRatio)
+    print("Power of b~ is: ", np.mean(np.abs(signal_b_)**2))
+    signal_b_ = normalize_energy(signal_b_, sigIn)
+    print("Power of b~ normalized is: ", np.mean(np.abs(signal_b_)**2))
+
+    errors = count_diffs(sigIn.real, decode_symbol_PAM4(signal_b_.real, prbs_gain))
+    print("Errors = ", errors)
+    print("BER = ", errors/prbs_samples)
+
+    if plotSignals:
+        plotSignal(sigIn, "b")
+        plotSignal(signal_d, "d")
+        plotSignal(signal_p, "p")
+        plotSignal(signal_x, "x")
+        plotSignal(signal_h, "h")
+        plotSignal(signal_n, "n")
+        plotSignal(signal_c, "c")
+        plotSignal(signal_y, "y")
+        plotSignal(signal_y_trimmed, "y_trimmed")
+        plotSignal(signal_b_, "b~")
+        input("Press [enter] to continue.")
+    if plotSymbols:
+        plt.figure()
+        plt.ion()
+        plt.show()
+        plt.plot(signal_b_.real, signal_b_.imag, 'x', label="b~ symbols")
+        plt.legend()
+        plt.title("Symbols with SNR = {:.1f} ({:.2f}/{:.3f})".format(sigIn_power/signal_n_power, sigIn_power, signal_n_power))
+        plt.grid()
+        plt.draw()
+        plt.pause(0.001)
+        input("Press [enter] to continue.")
+        pass
+    if plotEye:
+        plot_eye_diagram(signal_y_trimmed.real, samplingRatio)
+        input("Press [enter] to continue.")
+    
+    return signal_b_
+
+def plot_BER_MSE(sigIn):
     SNR_list = np.logspace(-3, 1, 20) #From 0 to 10 SNR. #np.linspace(0.001, 10, 20, endpoint=False)
     MSE_list = []
     BER_list = []
+    signal_power = np.mean(np.abs(sigIn)**2)
     for SNR in SNR_list:
-        signal_b = block_prbs_pam4(prbs_samples, False)
-        signal_power = np.mean(np.abs(signal_b)**2)
-        noise = signal_power / SNR
-        signal_d = block_upSampling(signal_b, samplingRatio, False)
-        signal_x = block_FIR(signal_d, False)
-        if FIR_mirror:
-            signal_x = signal_x[FIR_samples-1 : FIR_samples-1 + len(signal_d)]
-        else:
-            signal_x = signal_x[:len(signal_d)]
-        signal_c = block_channel(signal_x, noise, False)
-        if channel_mirror:
-            signal_c = signal_c[channel_samples-1 : channel_samples-1 + len(signal_x)]
-        else:
-            signal_c = signal_c[:len(signal_x)]
-        signal_y = block_FIR(signal_c, False)
-        if FIR_mirror:
-            signal_y = signal_y[FIR_samples-1 : FIR_samples-1 + len(signal_c)]
-        else:
-            signal_y = signal_y[:len(signal_c)]
-        signal_b_ = block_downSampling(signal_y, samplingRatio, False)
-        signal_b_ = normalize_energy(signal_b_, signal_b)
-        errors = count_diffs(signal_b.real, decode_symbol_PAM4(signal_b_.real, prbs_gain))
+        noise_power = signal_power / SNR
+        sigOut = system(sigIn, noise_power, False, False, False)
+        errors = count_diffs(sigIn.real, decode_symbol_PAM4(sigOut.real, prbs_gain))
         BER = errors/prbs_samples
-        MSE = get_mse(signal_b_, signal_b)
+        MSE = get_mse(sigOut, sigIn)
         BER_list.append(BER)
         MSE_list.append(MSE)
     plt.figure()
@@ -326,102 +273,12 @@ def plot_BER_MSE():
     plt.legend()
     plt.grid()
     plt.show()
-
-def plot_eye_diagram(sigIn):
-    plt.figure()
-    xedges = []
-    for idx in np.arange(0, len(sigIn), 1):
-        eyeDiagram = []
-        xAxis = []
-        prevIdx = idx - 1
-        nextIdx = (idx + 1)%len(sigIn)
-        eyeDiagram.append(sigIn[prevIdx])
-        xAxis.append(-1)
-        eyeDiagram.append(sigIn[idx])
-        xAxis.append(0)
-        eyeDiagram.append(sigIn[nextIdx])
-        xAxis.append(1)
-        plt.plot(xAxis, eyeDiagram)
-    plt.title("Eye Diagram")
-    plt.grid()
-    plt.show()
-    
-
-
+    input("Press [enter] to continue.")
 
 def main():
-    signal_b = block_prbs_pam4(prbs_samples, True)
-    print("Power of b is: ", np.mean(np.abs(signal_b)**2))
-
-    signal_d = block_upSampling(signal_b, samplingRatio, True)
-    
-    signal_x = block_FIR(signal_d, True)
-    if FIR_mirror:
-        signal_x = signal_x[FIR_samples-1 : FIR_samples-1 + len(signal_d)]
-    else:
-        signal_x = signal_x[:len(signal_d)]
-
-    signal_n = block_noise(channel_noise_power, channel_samples, False)
-    print("Power of n is: ", np.mean(np.abs(signal_n)**2))
-    
-    signal_c = block_channel(signal_x, channel_noise_power, True)
-    if channel_mirror:
-        signal_c = signal_c[channel_samples-1 : channel_samples-1 + len(signal_x)]
-    else:
-        signal_c = signal_c[:len(signal_x)]
-
-    signal_y = block_FIR(signal_c, True)
-    if FIR_mirror:
-        signal_y = signal_y[FIR_samples-1 : FIR_samples-1 + len(signal_c)]
-    else:
-        signal_y = signal_y[:len(signal_c)]
-    
-    
-    signal_b_ = block_downSampling(signal_y, samplingRatio, True)
-    print("Power of b~ is: ", np.mean(np.abs(signal_b_)**2))
-    signal_b_ = normalize_energy(signal_b_, signal_b)
-    print("Power of b~ normalized is: ", np.mean(np.abs(signal_b_)**2))
-
-
-
-    errors = count_diffs(signal_b.real, decode_symbol_PAM4(signal_b_.real, prbs_gain))
-    print("Errors = ", errors)
-    print("BER = ", errors/prbs_samples)
-    
-    plt.figure()
-    plt.ion()
-    plt.show()
-    plt.plot(signal_b_.real, signal_b_.imag, 'x', label="b~ symbols")
-    plt.legend()
-    plt.grid()
-    # ax = plt.gca()
-    # ax.set_xlim([-4, 4])
-    # ax.set_ylim([-4, 4])
-    plt.draw()
-    plt.pause(0.001)
-
-    plot_eye_diagram(signal_b_.real)
-
-
-
-    # signalCos = Signal.RootRaisedCosine(3, 1, 0, 1.0, 50, 100)
-    # signalCos2 = Signal.Sinc(3, 1, 0, 50, 100)
-    # plt.figure()
-    # plt.ion()
-    # plt.show()
-    # plt.stem(signalCos.samples(), signalCos.amplitudes(), 'r', markerfmt='ro', label="cos")
-    # plt.stem(signalCos2.samples(), signalCos2.amplitudes(), 'b', markerfmt='bo', label="sinc")
-    # plt.legend()
-    # plt.grid()
-    # plt.draw()
-    # plt.pause(0.001)
-
-
-    input("Press [enter] to close.")
-    
-
+    signal_b = block_prbs_pam4(prbs_samples)
+    system(signal_b, channel_noise_power, True, True, True)
+    plot_BER_MSE(signal_b)
 
 if __name__ == "__main__":
-   main()
-   #plot_BER_MSE()
-   #input("Press [enter] to close.")
+    main()

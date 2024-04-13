@@ -139,29 +139,24 @@ class RootRaisedCosine(Signal):
         self.phase = phase
         self.rollOff = rollOff
     
-    def evaluate(self, time):
-        sinc = Sinc(self.amp, self.freq, self.phase, self.fs, self.N)        
-        raisedCosine = []
+    def evaluate(self, time):        
+        signal = []
         for i in time:
-            if i == (1/(4*self.freq*self.rollOff)):
-                raisedCosine.append(0)
+            if i == 0:
+                chunk1 = self.amp*self.freq*(1 + self.rollOff*(-1 + 2/(np.pi/2)))
+                signal.append(chunk1)
+            elif (i == 1/(4*self.rollOff*self.freq)) or (i == -1/(4*self.rollOff*self.freq)):
+                chunk1 = (1 + 1/(np.pi/2))*np.sin((np.pi/2)/(2*self.rollOff))
+                chunk2 = (1 - 1/(np.pi/2))*np.cos((np.pi/2)/(2*self.rollOff))
+                chunk3 = self.rollOff*self.freq/np.sqrt(2)
+                signal.append(self.amp * chunk3 * (chunk1 + chunk2))
             else:
-                raisedCosine.append(np.cos(2*np.pi*self.freq*i*self.rollOff + self.phase) / (1 - (4*self.freq*i*self.rollOff)**2) * sinc.evaluate([i])[0]) 
-        #raisedCosine = (np.cos(2*np.pi*self.freq*time*self.rollOff + self.phase) / (1 - (4*self.freq*time*self.rollOff)**2)) * sinc.evaluate(time)
-        rootRaisedCosine = sign_sqrt_list(raisedCosine)
-        return rootRaisedCosine
+                chunk1 = np.sin(2*(np.pi/2)*self.freq*i*(1 - self.rollOff) + self.phase)
+                chunk2 = 4*self.rollOff*self.freq*i*np.cos(2*(np.pi/2)*self.freq*i*(1 + self.rollOff) + self.phase)
+                chunk3 = 2*(np.pi/2)*i*(1 - (4*self.rollOff*self.freq*i)**2)
+                signal.append(self.amp * (chunk1 + chunk2)/chunk3)
         
-        # signal = []
-        # for i in time:
-        #     if i == 0:
-        #         chunk1 = self.amp*self.freq*(1 + self.rollOff*(-1 + 2/np.pi))
-        #         signal.append(chunk1)
-        #     else:
-        #         chunk1 = np.sin(2*np.pi*self.freq*i*(1 - self.rollOff) + self.phase)
-        #         chunk2 = 4*self.rollOff*self.freq*i*np.cos(2*np.pi*self.freq*i*(1 + self.rollOff) + self.phase)
-        #         chunk3 = 2*np.pi*i*(1 - (4*self.rollOff*self.freq*i)**2)
-        #         signal.append(self.amp * (chunk1 + chunk2)/chunk3)
-        # return signal
+        return signal
 
         
     def amplitudes(self):
@@ -195,7 +190,7 @@ class Sinc(Signal):
             if i == 0:
                 signal.append(self.amp)
             else:
-                signal.append(self.amp * np.sin(2*np.pi*self.freq*i + self.phase) / (2*np.pi*self.freq*i))
+                signal.append(self.amp * np.sin(np.pi*self.freq*i + self.phase) / (np.pi*self.freq*i))
         return signal
 
     def amplitudes(self):
